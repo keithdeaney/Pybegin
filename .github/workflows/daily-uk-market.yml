@@ -1,0 +1,44 @@
+name: Daily UK market report
+
+on:
+  schedule:
+    # 17:12 UTC Mon-Fri: after the 16:30 London close in both GMT and BST.
+    - cron: "12 17 * * 1-5"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - run: pip install -r requirements-dev.txt
+
+      - run: pytest -q
+
+      - name: Build today's report
+        env:
+          # Optional: add this repository secret to get a Claude-written market wrap.
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python -m uk_market_agent
+
+      - name: Commit report
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add reports/
+          git diff --cached --quiet && echo "No new report" && exit 0
+          git commit -m "UK market report $(date -u +%F)"
+          git push
+
+      - name: Show report in run summary
+        if: always()
+        run: test -f reports/latest.md && cat reports/latest.md >> "$GITHUB_STEP_SUMMARY" || true
